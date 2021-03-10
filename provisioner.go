@@ -304,7 +304,7 @@ func (p *LocalPathProvisioner) Provision(opts pvController.ProvisionOptions) (*v
 			},
 			PersistentVolumeSource: v1.PersistentVolumeSource{
 				HostPath: &v1.HostPathVolumeSource{
-					Path: path,
+					Path: path + "/volume",
 					Type: &hostPathType,
 				},
 			},
@@ -349,7 +349,14 @@ func (p *LocalPathProvisioner) getPathAndNodeForPV(pv *v1.PersistentVolume) (pat
 	if hostPath == nil {
 		return "", "", fmt.Errorf("no HostPath set")
 	}
-	path = hostPath.Path
+	volumepath := hostPath.Path
+
+	path, volume := filepath.Split(volumepath)
+	path = strings.TrimSuffix(path, "/")
+	volume = strings.TrimSuffix(volume, "/")
+	if volume != "volume" {
+		return "", "", fmt.Errorf("no /volume subdir in %s", path)
+	}
 
 	sharedFS, err := p.isSharedFilesystem()
 	if err != nil {
