@@ -19,26 +19,32 @@ import (
 )
 
 var (
-	VERSION                = "0.0.1"
-	FlagConfigFile         = "config"
-	FlagProvisionerName    = "provisioner-name"
-	EnvProvisionerName     = "PROVISIONER_NAME"
-	DefaultProvisionerName = "rancher.io/local-path"
-	FlagNamespace          = "namespace"
-	EnvNamespace           = "POD_NAMESPACE"
-	DefaultNamespace       = "local-path-storage"
-	FlagHelperImage        = "helper-image"
-	EnvHelperImage         = "HELPER_IMAGE"
-	DefaultHelperImage     = "rancher/library-busybox:1.31.1"
-	FlagServiceAccountName = "service-account-name"
-	DefaultServiceAccount  = "local-path-provisioner-service-account"
-	EnvServiceAccountName  = "SERVICE_ACCOUNT_NAME"
-	FlagKubeconfig         = "kubeconfig"
-	DefaultConfigFileKey   = "config.json"
-	DefaultConfigMapName   = "local-path-config"
-	FlagConfigMapName      = "configmap-name"
-	FlagHelperPodFile      = "helper-pod-file"
-	DefaultHelperPodFile   = "helperPod.yaml"
+	VERSION                       = "0.0.1"
+	FlagConfigFile                = "config"
+	FlagProvisionerName           = "provisioner-name"
+	EnvProvisionerName            = "PROVISIONER_NAME"
+	DefaultProvisionerName        = "rancher.io/local-path"
+	FlagNamespace                 = "namespace"
+	EnvNamespace                  = "POD_NAMESPACE"
+	DefaultNamespace              = "local-path-storage"
+	FlagHelperImage               = "helper-image"
+	EnvHelperImage                = "HELPER_IMAGE"
+	DefaultHelperImage            = "rancher/library-busybox:1.32.1"
+	FlagServiceAccountName        = "service-account-name"
+	DefaultServiceAccount         = "local-path-provisioner-service-account"
+	EnvServiceAccountName         = "SERVICE_ACCOUNT_NAME"
+	FlagKubeconfig                = "kubeconfig"
+	DefaultConfigFileKey          = "config.json"
+	DefaultConfigMapName          = "local-path-config"
+	FlagConfigMapName             = "configmap-name"
+	FlagHelperPodFile             = "helper-pod-file"
+	DefaultHelperPodFile          = "helperPod.yaml"
+	FlagWorkerThreads             = "worker-threads"
+	DefaultWorkerThreads          = pvController.DefaultThreadiness
+	FlagProvisioningRetryCount    = "provisioning-retry-count"
+	DefaultProvisioningRetryCount = pvController.DefaultFailedProvisionThreshold
+	FlagDeletionRetryCount        = "deletion-retry-count"
+	DefaultDeletionRetryCount     = pvController.DefaultFailedDeleteThreshold
 )
 
 func cmdNotFound(c *cli.Context, command string) {
@@ -106,6 +112,21 @@ func StartCmd() cli.Command {
 				Name:  FlagHelperPodFile,
 				Usage: "Paths to the Helper pod yaml file",
 				Value: "",
+			},
+			cli.IntFlag{
+				Name:  FlagWorkerThreads,
+				Usage: "Number of provisioner worker threads.",
+				Value: DefaultWorkerThreads,
+			},
+			cli.IntFlag{
+				Name:  FlagProvisioningRetryCount,
+				Usage: "Number of retries of failed volume provisioning. 0 means retry indefinitely.",
+				Value: DefaultProvisioningRetryCount,
+			},
+			cli.IntFlag{
+				Name:  FlagDeletionRetryCount,
+				Usage: "Number of retries of failed volume deletion. 0 means retry indefinitely.",
+				Value: DefaultDeletionRetryCount,
 			},
 		},
 		Action: func(c *cli.Context) {
@@ -222,6 +243,21 @@ func startDaemon(c *cli.Context) error {
 		}
 	}
 
+	provisioningRetryCount := c.Int(FlagProvisioningRetryCount)
+	if provisioningRetryCount < 0 {
+		return fmt.Errorf("invalid negative integer flag %v", FlagProvisioningRetryCount)
+	}
+
+	deletionRetryCount := c.Int(FlagDeletionRetryCount)
+	if deletionRetryCount < 0 {
+		return fmt.Errorf("invalid negative integer flag %v", FlagDeletionRetryCount)
+	}
+
+	workerThreads := c.Int(FlagWorkerThreads)
+	if workerThreads <= 0 {
+		return fmt.Errorf("invalid zero or negative integer flag %v", FlagWorkerThreads)
+	}
+
 	provisioner, err := NewProvisioner(stopCh, kubeClient, configFile, namespace, helperImage, configMapName, serviceAccountName, helperPodYaml)
 	if err != nil {
 		return err
@@ -232,6 +268,9 @@ func startDaemon(c *cli.Context) error {
 		provisioner,
 		serverVersion.GitVersion,
 		pvController.LeaderElection(false),
+		pvController.FailedProvisionThreshold(provisioningRetryCount),
+		pvController.FailedDeleteThreshold(deletionRetryCount),
+		pvController.Threadiness(workerThreads),
 	)
 	logrus.Debug("Provisioner started")
 	pc.Run(stopCh)

@@ -273,6 +273,10 @@ func (p *LocalPathProvisioner) Provision(opts pvController.ProvisionOptions) (*v
 		// affinity, as path is accessible from any node
 		nodeAffinity = nil
 	} else {
+		valueNode, ok := node.GetLabels()[KeyNode]
+		if !ok {
+			valueNode = node.Name
+		}
 		nodeAffinity = &v1.VolumeNodeAffinity{
 			Required: &v1.NodeSelector{
 				NodeSelectorTerms: []v1.NodeSelectorTerm{
@@ -282,7 +286,7 @@ func (p *LocalPathProvisioner) Provision(opts pvController.ProvisionOptions) (*v
 								Key:      KeyNode,
 								Operator: v1.NodeSelectorOpIn,
 								Values: []string{
-									node.Name,
+									valueNode,
 								},
 							},
 						},
@@ -291,6 +295,7 @@ func (p *LocalPathProvisioner) Provision(opts pvController.ProvisionOptions) (*v
 			},
 		}
 	}
+
 	return &v1.PersistentVolume{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
